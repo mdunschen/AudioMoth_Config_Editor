@@ -6,6 +6,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -14,6 +15,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.SettingsInputAntenna
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -21,9 +23,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
-import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -40,6 +41,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen() {
     var currentScreen by remember { mutableStateOf(Screen.HOME) }
@@ -71,28 +73,52 @@ fun MainScreen() {
         }
     }
 
-    when (currentScreen) {
-        Screen.HOME -> HomeScreen(
-            onLoadConfig = {
-                openDocumentLauncher.launch(arrayOf("*/*"))
-            },
-            onNewConfig = {
-                selectedConfig = AudioMothConfig()
-                currentScreen = Screen.EDIT
+    Scaffold(
+        topBar = {
+            CenterAlignedTopAppBar(
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Image(
+                            painter = painterResource(id = R.mipmap.ic_launcher_foreground),
+                            contentDescription = "App Icon",
+                            modifier = Modifier.size(40.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("AudioMoth Config Editor")
+                    }
+                },
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimary
+                )
+            )
+        }
+    ) { innerPadding ->
+        Box(modifier = Modifier.padding(innerPadding)) {
+            when (currentScreen) {
+                Screen.HOME -> HomeScreen(
+                    onLoadConfig = {
+                        openDocumentLauncher.launch(arrayOf("*/*"))
+                    },
+                    onNewConfig = {
+                        selectedConfig = AudioMothConfig()
+                        currentScreen = Screen.EDIT
+                    }
+                )
+                Screen.EDIT -> EditScreen(
+                    config = selectedConfig ?: AudioMothConfig(),
+                    onSave = { config ->
+                        selectedConfig = config
+                        val sdf = SimpleDateFormat("yyyyMMdd_HHmm", Locale.getDefault())
+                        val fileName = "audiomoth${sdf.format(Date())}.config"
+                        createDocumentLauncher.launch(fileName)
+                    },
+                    onCancel = {
+                        currentScreen = Screen.HOME
+                    }
+                )
             }
-        )
-        Screen.EDIT -> EditScreen(
-            config = selectedConfig ?: AudioMothConfig(),
-            onSave = { config ->
-                selectedConfig = config
-                val sdf = SimpleDateFormat("yyyyMMdd_HHmm", Locale.getDefault())
-                val fileName = "audiomoth${sdf.format(Date())}.config"
-                createDocumentLauncher.launch(fileName)
-            },
-            onCancel = {
-                currentScreen = Screen.HOME
-            }
-        )
+        }
     }
 }
 
@@ -111,12 +137,6 @@ fun HomeScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.Center
     ) {
-        Text(
-            text = "AudioMoth Config Editor",
-            style = MaterialTheme.typography.headlineMedium,
-            modifier = Modifier.padding(bottom = 32.dp)
-        )
-
         Button(
             onClick = onNewConfig,
             modifier = Modifier
@@ -160,35 +180,60 @@ fun EditScreen(
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        Text(
-            text = "Edit Configuration",
-            style = MaterialTheme.typography.headlineMedium,
-            modifier = Modifier.padding(bottom = 16.dp)
-        )
-
         ConfigTabScreen(
             config = editingConfig,
-            onConfigChange = { editingConfig = it }
+            onConfigChange = { editingConfig = it },
+            modifier = Modifier.weight(1f)
         )
 
-        Spacer(modifier = Modifier.weight(1f))
+        Spacer(modifier = Modifier.height(16.dp))
 
-        Row(
+        Button(
+            onClick = { 
+                val packet = AcousticConfigBuilder.buildPacket(editingConfig)
+                ChimeGenerator.play(packet)
+            },
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 16.dp),
+                .height(64.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.secondary
+            )
+        ) {
+            Icon(Icons.Default.SettingsInputAntenna, contentDescription = null)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Configure AudioMoth", style = MaterialTheme.typography.titleLarge)
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Button(
+            onClick = { onSave(editingConfig) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp)
+        ) {
+            Text("Save to File")
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
-            OutlinedButton(onClick = onCancel) {
+            OutlinedButton(
+                onClick = onCancel,
+                modifier = Modifier.weight(1f)
+            ) {
                 Text("Cancel")
             }
-
-            OutlinedButton(onClick = { showPreview = true }) {
+            Spacer(modifier = Modifier.width(16.dp))
+            OutlinedButton(
+                onClick = { showPreview = true },
+                modifier = Modifier.weight(1f)
+            ) {
                 Text("Preview")
-            }
-
-            Button(onClick = { onSave(editingConfig) }) {
-                Text("Save")
             }
         }
     }
@@ -197,12 +242,13 @@ fun EditScreen(
 @Composable
 fun ConfigTabScreen(
     config: AudioMothConfig,
-    onConfigChange: (AudioMothConfig) -> Unit
+    onConfigChange: (AudioMothConfig) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     val tabs = listOf("Recording", "Schedule", "Filtering", "Advanced")
 
-    Column {
+    Column(modifier = modifier) {
         ScrollableTabRow(
             selectedTabIndex = selectedTab,
             edgePadding = 0.dp,
@@ -221,8 +267,8 @@ fun ConfigTabScreen(
             when (selectedTab) {
                 0 -> RecordingTab(config, onConfigChange)
                 1 -> ScheduleTab(config, onConfigChange)
-                2 -> Text("Filtering Settings (Coming Soon)")
-                3 -> Text("Advanced Settings (Coming Soon)")
+                2 -> FilteringTab(config, onConfigChange)
+                3 -> AdvancedTab(config, onConfigChange)
             }
         }
     }
@@ -234,8 +280,8 @@ fun RecordingTab(
     config: AudioMothConfig,
     onConfigChange: (AudioMothConfig) -> Unit
 ) {
-    Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-        val sampleRates = listOf(384000, 250000, 192000, 96000)
+    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        val sampleRates = listOf(384000, 250000, 192000, 96000, 48000)
         var expanded by remember { mutableStateOf(false) }
 
         ExposedDropdownMenuBox(
@@ -391,11 +437,171 @@ fun ScheduleTab(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun FilteringTab(
+    config: AudioMothConfig,
+    onConfigChange: (AudioMothConfig) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+            Checkbox(
+                checked = config.passFiltersEnabled,
+                onCheckedChange = { onConfigChange(config.copy(passFiltersEnabled = it)) }
+            )
+            Text("Enable Pass Filters", modifier = Modifier.align(Alignment.CenterVertically))
+        }
+
+        if (config.passFiltersEnabled) {
+            val filterTypes = listOf("none", "low-pass", "high-pass", "band-pass")
+            var expanded by remember { mutableStateOf(false) }
+
+            ExposedDropdownMenuBox(
+                expanded = expanded,
+                onExpandedChange = { expanded = !expanded },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp)
+            ) {
+                OutlinedTextField(
+                    value = config.filterType,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Filter Type") },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                    modifier = Modifier
+                        .menuAnchor()
+                        .fillMaxWidth()
+                )
+
+                ExposedDropdownMenu(
+                    expanded = expanded,
+                    onDismissRequest = { expanded = false }
+                ) {
+                    filterTypes.forEach { type ->
+                        DropdownMenuItem(
+                            text = { Text(text = type) },
+                            onClick = {
+                                onConfigChange(config.copy(filterType = type))
+                                expanded = false
+                            }
+                        )
+                    }
+                }
+            }
+
+            if (config.filterType == "high-pass" || config.filterType == "band-pass") {
+                OutlinedTextField(
+                    value = config.lowerFilter.toString(),
+                    onValueChange = {
+                        it.toIntOrNull()?.let { freq -> onConfigChange(config.copy(lowerFilter = freq)) }
+                    },
+                    label = { Text("Lower Filter Frequency (Hz)") },
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+                )
+            }
+
+            if (config.filterType == "low-pass" || config.filterType == "band-pass") {
+                OutlinedTextField(
+                    value = config.higherFilter.toString(),
+                    onValueChange = {
+                        it.toIntOrNull()?.let { freq -> onConfigChange(config.copy(higherFilter = freq)) }
+                    },
+                    label = { Text("Higher Filter Frequency (Hz)") },
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+                )
+            }
+        }
+
+        Divider(modifier = Modifier.padding(vertical = 16.dp))
+
+        Text("Amplitude Thresholding", style = MaterialTheme.typography.titleMedium)
+        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+            Checkbox(
+                checked = config.amplitudeThresholdingEnabled,
+                onCheckedChange = { onConfigChange(config.copy(amplitudeThresholdingEnabled = it)) }
+            )
+            Text("Enable Amplitude Thresholding", modifier = Modifier.align(Alignment.CenterVertically))
+        }
+
+        if (config.amplitudeThresholdingEnabled) {
+            OutlinedTextField(
+                value = config.amplitudeThreshold.toString(),
+                onValueChange = {
+                    it.toDoubleOrNull()?.let { threshold -> onConfigChange(config.copy(amplitudeThreshold = threshold)) }
+                },
+                label = { Text("Threshold") },
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+            )
+            OutlinedTextField(
+                value = config.minimumAmplitudeThresholdDuration.toString(),
+                onValueChange = {
+                    it.toIntOrNull()?.let { duration -> onConfigChange(config.copy(minimumAmplitudeThresholdDuration = duration)) }
+                },
+                label = { Text("Minimum Duration (s)") },
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+            )
+        }
+    }
+}
+
+@Composable
+fun AdvancedTab(
+    config: AudioMothConfig,
+    onConfigChange: (AudioMothConfig) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        Text("Frequency Trigger", style = MaterialTheme.typography.titleMedium)
+        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+            Checkbox(
+                checked = config.frequencyTriggerEnabled,
+                onCheckedChange = { onConfigChange(config.copy(frequencyTriggerEnabled = it)) }
+            )
+            Text("Enable Frequency Trigger", modifier = Modifier.align(Alignment.CenterVertically))
+        }
+
+        if (config.frequencyTriggerEnabled) {
+            OutlinedTextField(
+                value = config.frequencyTriggerCentreFrequency.toString(),
+                onValueChange = {
+                    it.toIntOrNull()?.let { freq -> onConfigChange(config.copy(frequencyTriggerCentreFrequency = freq)) }
+                },
+                label = { Text("Centre Frequency (Hz)") },
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+            )
+        }
+
+        Divider(modifier = Modifier.padding(vertical = 16.dp))
+
+        Text("Other Settings", style = MaterialTheme.typography.titleMedium)
+        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+            Checkbox(
+                checked = config.energySaverModeEnabled,
+                onCheckedChange = { onConfigChange(config.copy(energySaverModeEnabled = it)) }
+            )
+            Text("Energy Saver Mode", modifier = Modifier.align(Alignment.CenterVertically))
+        }
+        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+            Checkbox(
+                checked = config.lowGainRangeEnabled,
+                onCheckedChange = { onConfigChange(config.copy(lowGainRangeEnabled = it)) }
+            )
+            Text("Low Gain Range", modifier = Modifier.align(Alignment.CenterVertically))
+        }
+        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+            Checkbox(
+                checked = config.batteryLevelCheckEnabled,
+                onCheckedChange = { onConfigChange(config.copy(batteryLevelCheckEnabled = it)) }
+            )
+            Text("Battery Level Check", modifier = Modifier.align(Alignment.CenterVertically))
+        }
+    }
+}
+
 @Composable
 fun ScheduleTimeline(timePeriods: List<TimePeriod>) {
     val outlineColor = MaterialTheme.colorScheme.outline
     val scheduledColor = Color.Red
-    val textColor = MaterialTheme.colorScheme.onSurface
 
     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
         Canvas(
@@ -499,29 +705,52 @@ fun TimePickerField(
     minutes: Int,
     onMinutesChange: (Int) -> Unit
 ) {
-    var hour by remember(minutes) { mutableIntStateOf(minutes / 60) }
-    var minute by remember(minutes) { mutableIntStateOf(minutes % 60) }
+    var hourText by remember { mutableStateOf((minutes / 60).toString().padStart(2, '0')) }
+    var minuteText by remember { mutableStateOf((minutes % 60).toString().padStart(2, '0')) }
+
+    LaunchedEffect(minutes) {
+        val hValue = minutes / 60
+        val mValue = minutes % 60
+        if (hourText.toIntOrNull() != hValue) {
+            hourText = hValue.toString().padStart(2, '0')
+        }
+        if (minuteText.toIntOrNull() != mValue) {
+            minuteText = mValue.toString().padStart(2, '0')
+        }
+    }
 
     Column {
         Text(text = label, style = MaterialTheme.typography.labelSmall)
         Row(verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
-                value = hour.toString().padStart(2, '0'),
-                onValueChange = {
-                    val h = it.toIntOrNull()?.coerceIn(0, 23) ?: hour
-                    onMinutesChange(h * 60 + minute)
+                value = hourText,
+                onValueChange = { newText ->
+                    if (newText.length <= 2 && (newText.isEmpty() || newText.all { it.isDigit() })) {
+                        hourText = newText
+                        newText.toIntOrNull()?.let { h ->
+                            if (h in 0..23) {
+                                onMinutesChange(h * 60 + (minuteText.toIntOrNull() ?: 0))
+                            }
+                        }
+                    }
                 },
-                modifier = Modifier.width(60.dp),
+                modifier = Modifier.width(70.dp),
                 singleLine = true
             )
             Text(" : ", style = MaterialTheme.typography.bodyLarge)
             OutlinedTextField(
-                value = minute.toString().padStart(2, '0'),
-                onValueChange = {
-                    val m = it.toIntOrNull()?.coerceIn(0, 59) ?: minute
-                    onMinutesChange(hour * 60 + m)
+                value = minuteText,
+                onValueChange = { newText ->
+                    if (newText.length <= 2 && (newText.isEmpty() || newText.all { it.isDigit() })) {
+                        minuteText = newText
+                        newText.toIntOrNull()?.let { m ->
+                            if (m in 0..59) {
+                                onMinutesChange(((hourText.toIntOrNull() ?: 0) * 60) + m)
+                            }
+                        }
+                    }
                 },
-                modifier = Modifier.width(60.dp),
+                modifier = Modifier.width(70.dp),
                 singleLine = true
             )
         }

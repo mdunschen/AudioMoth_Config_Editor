@@ -5,10 +5,7 @@ import com.google.gson.annotations.SerializedName
 
 data class AudioMothConfig(
     @SerializedName("timePeriods")
-    val timePeriods: List<TimePeriod> = listOf(
-        TimePeriod(startMins = 0, endMins = 3600),
-        TimePeriod(startMins = 7200, endMins = 26100)
-    ),
+    val timePeriods: List<TimePeriod> = emptyList(),
     @SerializedName("ledEnabled")
     val ledEnabled: Boolean = true,
     @SerializedName("lowVoltageCutoffEnabled")
