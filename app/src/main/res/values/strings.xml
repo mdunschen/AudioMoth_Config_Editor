@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AudioMoth Config Editor</string>
+    <string name="home_title">AudioMoth Config Editor</string>
+    <string name="new_config">Create New Configuration</string>
+    <string name="load_config">Load Configuration from File</string>
+    <string name="edit_config">Edit Configuration</string>
+    <string name="save_config">Save Configuration</string>
+    <string name="cancel">Cancel</string>
+    <string name="preview">Preview</string>
+    <string name="sample_rate">Sample Rate (Hz)</string>
+    <string name="record_duration">Record Duration (seconds)</string>
+    <string name="sleep_duration">Sleep Duration (seconds)</string>
+    <string name="gain">Gain</string>
+    <string name="led_enabled">LED Enabled</string>
+    <string name="low_voltage_cutoff">Low Voltage Cutoff</string>
+    <string name="duty_enabled">Duty Enabled</string>
+</resources>

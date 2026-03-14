@@ -1,0 +1,25 @@
+# Gradle files
+.gradle/
+build/
+*.apk
+*.aab
+
+# Android Studio
+.idea/
+.DS_Store
+*.jks
+*.keystore
+local.properties
+
+# IDE
+*.iml
+*.iws
+*.ipr
+
+# Build outputs
+bin/
+gen/
+out/
+
+# Gradle wrapper
+!gradle/wrapper/gradle-wrapper.jar

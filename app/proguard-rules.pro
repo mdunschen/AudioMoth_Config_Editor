@@ -1,0 +1,4 @@
+-keep class com.audiomoth.configeditor.** { *; }
+-keep class com.google.gson.** { *; }
+-keepattributes *Annotation*
+-keepattributes SourceFile,LineNumberTable
