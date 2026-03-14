@@ -618,7 +618,7 @@ fun ScheduleTimeline(timePeriods: List<TimePeriod>) {
         ) {
             for (hour in 0..24 step 6) {
                 Text(
-                    text = String.format("%02d:00", hour),
+                    text = String.format(Locale.getDefault(), "%02d:00", hour),
                     style = labelStyle,
                     color = onSurfaceVariant
                 )
@@ -682,7 +682,6 @@ fun PeriodItem(
                 style = MaterialTheme.typography.titleMedium,
                 fontSize = 16.sp,
                 modifier = Modifier.clickable { 
-                    onSelect()
                     pickingStart = true
                     showTimePicker = true 
                 }
@@ -693,7 +692,6 @@ fun PeriodItem(
                 style = MaterialTheme.typography.titleMedium,
                 fontSize = 16.sp,
                 modifier = Modifier.clickable { 
-                    onSelect()
                     pickingStart = false
                     showTimePicker = true 
                 }
@@ -716,7 +714,7 @@ fun PeriodItem(
 fun formatMins(mins: Int): String {
     val h = (mins / 60) % 24
     val m = mins % 60
-    return String.format("%02d:%02d", h, m)
+    return String.format(Locale.getDefault(), "%02d:%02d", h, m)
 }
 
 @Composable
