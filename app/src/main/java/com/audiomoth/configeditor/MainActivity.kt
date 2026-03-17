@@ -438,8 +438,6 @@ fun ScheduleTab(
     config: AudioMothConfig,
     onConfigChange: (AudioMothConfig) -> Unit
 ) {
-    var selectedPeriodIndex by remember { mutableStateOf<Int?>(null) }
-
     Column(modifier = Modifier.fillMaxSize()) {
         ScheduleTimeline(timePeriods = config.timePeriods)
 
@@ -448,31 +446,15 @@ fun ScheduleTab(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row {
-                IconButton(onClick = {
-                    val newPeriod = TimePeriod(startMins = 0, endMins = 60)
-                    onConfigChange(config.copy(timePeriods = (config.timePeriods + newPeriod).sortedBy { it.startMins }))
-                }) {
-                    Icon(Icons.Default.Add, contentDescription = "Add Period", modifier = Modifier.size(24.dp))
-                }
-
-                IconButton(
-                    onClick = {
-                        selectedPeriodIndex?.let { index ->
-                            val newList = config.timePeriods.toMutableList().apply { removeAt(index) }
-                            onConfigChange(config.copy(timePeriods = newList))
-                            selectedPeriodIndex = null
-                        }
-                    },
-                    enabled = selectedPeriodIndex != null
-                ) {
-                    Icon(Icons.Default.Delete, contentDescription = "Remove Selected", modifier = Modifier.size(24.dp))
-                }
+            IconButton(onClick = {
+                val newPeriod = TimePeriod(startMins = 0, endMins = 60)
+                onConfigChange(config.copy(timePeriods = (config.timePeriods + newPeriod).sortedBy { it.startMins }))
+            }) {
+                Icon(Icons.Default.Add, contentDescription = "Add Period", modifier = Modifier.size(24.dp))
             }
 
             TextButton(onClick = {
                 onConfigChange(config.copy(timePeriods = emptyList()))
-                selectedPeriodIndex = null
             }, contentPadding = PaddingValues(0.dp)) {
                 Text("Clear All", fontSize = 14.sp)
             }
@@ -483,8 +465,10 @@ fun ScheduleTab(
                 config.timePeriods.forEachIndexed { index, period ->
                     PeriodItem(
                         period = period,
-                        isSelected = selectedPeriodIndex == index,
-                        onSelect = { selectedPeriodIndex = index },
+                        onDelete = {
+                            val newList = config.timePeriods.toMutableList().apply { removeAt(index) }
+                            onConfigChange(config.copy(timePeriods = newList))
+                        },
                         onUpdate = { updatedPeriod ->
                             val newList = config.timePeriods.toMutableList().apply { this[index] = updatedPeriod }
                             onConfigChange(config.copy(timePeriods = newList.sortedBy { it.startMins }))
@@ -631,8 +615,7 @@ fun ScheduleTimeline(timePeriods: List<TimePeriod>) {
 @Composable
 fun PeriodItem(
     period: TimePeriod,
-    isSelected: Boolean,
-    onSelect: () -> Unit,
+    onDelete: () -> Unit,
     onUpdate: (TimePeriod) -> Unit
 ) {
     var showTimePicker by remember { mutableStateOf(false) }
@@ -667,14 +650,13 @@ fun PeriodItem(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 1.dp)
-            .clickable { onSelect() },
+            .padding(vertical = 1.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+            containerColor = MaterialTheme.colorScheme.surface
         )
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
@@ -699,12 +681,12 @@ fun PeriodItem(
             
             Spacer(modifier = Modifier.weight(1f))
             
-            if (isSelected) {
+            IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
                 Icon(
-                    Icons.Default.Edit, 
-                    contentDescription = null, 
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(18.dp)
+                    Icons.Default.Delete, 
+                    contentDescription = "Delete Period", 
+                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
+                    modifier = Modifier.size(20.dp)
                 )
             }
         }
