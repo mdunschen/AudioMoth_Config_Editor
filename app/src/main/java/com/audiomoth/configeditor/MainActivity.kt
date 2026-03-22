@@ -486,53 +486,131 @@ fun FilteringTab(
     config: AudioMothConfig,
     onConfigChange: (AudioMothConfig) -> Unit
 ) {
-    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(
-                checked = config.passFiltersEnabled,
-                onCheckedChange = { onConfigChange(config.copy(passFiltersEnabled = it)) }
-            )
-            Text("Enable Pass Filters", style = MaterialTheme.typography.bodyMedium)
+    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
+        val displayFilterTypes = listOf("None", "Low", "Band", "High")
+        val internalFilterTypes = listOf("none", "low-pass", "band-pass", "high-pass")
+        
+        var expanded by remember { mutableStateOf(false) }
+
+        val currentDisplayType = when (config.filterType) {
+            "low-pass" -> "Low"
+            "band-pass" -> "Band"
+            "high-pass" -> "High"
+            else -> "None"
         }
 
-        if (config.passFiltersEnabled) {
-            val filterTypes = listOf("none", "low-pass", "high-pass", "band-pass")
-            var expanded by remember { mutableStateOf(false) }
-
-            ExposedDropdownMenuBox(
-                expanded = expanded,
-                onExpandedChange = { expanded = !expanded },
+        Text("Filter Type", style = MaterialTheme.typography.titleSmall)
+        ExposedDropdownMenuBox(
+            expanded = expanded,
+            onExpandedChange = { expanded = !expanded },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp)
+        ) {
+            OutlinedTextField(
+                value = currentDisplayType,
+                onValueChange = {},
+                readOnly = true,
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp)
-            ) {
-                OutlinedTextField(
-                    value = config.filterType,
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text("Filter Type") },
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                    modifier = Modifier
-                        .menuAnchor()
-                        .fillMaxWidth(),
-                    textStyle = MaterialTheme.typography.bodyMedium
-                )
+                    .menuAnchor()
+                    .fillMaxWidth(),
+                textStyle = MaterialTheme.typography.bodyMedium
+            )
 
-                ExposedDropdownMenu(
-                    expanded = expanded,
-                    onDismissRequest = { expanded = false }
-                ) {
-                    filterTypes.forEach { type ->
-                        DropdownMenuItem(
-                            text = { Text(text = type) },
-                            onClick = {
-                                onConfigChange(config.copy(filterType = type))
-                                expanded = false
-                            }
-                        )
-                    }
+            ExposedDropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false }
+            ) {
+                displayFilterTypes.forEachIndexed { index, type ->
+                    DropdownMenuItem(
+                        text = { Text(text = type) },
+                        onClick = {
+                            val internalValue = internalFilterTypes[index]
+                            onConfigChange(config.copy(
+                                filterType = internalValue,
+                                passFiltersEnabled = internalValue != "none"
+                            ))
+                            expanded = false
+                        }
+                    )
                 }
             }
+        }
+
+        if (config.filterType != "none") {
+            Spacer(modifier = Modifier.height(24.dp))
+            
+            Text("Frequency Selection", style = MaterialTheme.typography.titleSmall)
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("0 kHz", style = MaterialTheme.typography.labelSmall)
+                Text("24 kHz", style = MaterialTheme.typography.labelSmall)
+            }
+
+            if (config.filterType == "band-pass") {
+                RangeSlider(
+                    value = config.lowerFilter.toFloat()..config.higherFilter.toFloat(),
+                    onValueChange = { range ->
+                        val start = (range.start / 100).toInt() * 100
+                        val end = (range.endInclusive / 100).toInt() * 100
+                        onConfigChange(config.copy(lowerFilter = start, higherFilter = end))
+                    },
+                    valueRange = 0f..24000f,
+                    steps = 239,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            } else {
+                val sliderValue = if (config.filterType == "low-pass") config.higherFilter.toFloat() else config.lowerFilter.toFloat()
+                
+                // For High-pass, we want the track to the RIGHT of the thumb to be colored (green/primary).
+                // Slider highlights activeTrack (from left to thumb).
+                // So for High-pass, we swap active and inactive track colors.
+                val sliderColors = if (config.filterType == "high-pass") {
+                    SliderDefaults.colors(
+                        activeTrackColor = MaterialTheme.colorScheme.surfaceVariant,
+                        inactiveTrackColor = MaterialTheme.colorScheme.primary
+                    )
+                } else {
+                    SliderDefaults.colors(
+                        activeTrackColor = MaterialTheme.colorScheme.primary,
+                        inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
+                }
+
+                Slider(
+                    value = sliderValue,
+                    onValueChange = { value ->
+                        val freq = (value / 100).toInt() * 100
+                        if (config.filterType == "low-pass") {
+                            onConfigChange(config.copy(higherFilter = freq))
+                        } else {
+                            onConfigChange(config.copy(lowerFilter = freq))
+                        }
+                    },
+                    valueRange = 0f..24000f,
+                    steps = 239,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = sliderColors
+                )
+            }
+            
+            val description = when (config.filterType) {
+                "low-pass" -> "Recording will collect frequencies from 0 to ${config.higherFilter} Hz"
+                "high-pass" -> "Recording will collect frequencies from ${config.lowerFilter} Hz to 24000 Hz"
+                "band-pass" -> "Recording will collect frequencies from ${config.lowerFilter} Hz to ${config.higherFilter} Hz"
+                else -> ""
+            }
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 8.dp)
+            )
         }
     }
 }
