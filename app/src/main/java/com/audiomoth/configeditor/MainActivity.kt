@@ -29,6 +29,8 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.delay
+import kotlin.math.log10
+import kotlin.math.pow
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -599,17 +601,142 @@ fun FilteringTab(
                 )
             }
             
-            val description = when (config.filterType) {
+            val filterDescription = when (config.filterType) {
                 "low-pass" -> "Recording will collect frequencies from 0 to ${config.higherFilter} Hz"
                 "high-pass" -> "Recording will collect frequencies from ${config.lowerFilter} Hz to 24000 Hz"
                 "band-pass" -> "Recording will collect frequencies from ${config.lowerFilter} Hz to ${config.higherFilter} Hz"
                 else -> ""
             }
             Text(
-                text = description,
+                text = filterDescription,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(top = 8.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+        val triggerTypes = listOf("None", "Amplitude", "Frequency")
+        var triggerExpanded by remember { mutableStateOf(false) }
+        val currentTriggerType = when {
+            config.amplitudeThresholdingEnabled -> "Amplitude"
+            config.frequencyTriggerEnabled -> "Frequency"
+            else -> "None"
+        }
+
+        Text("Trigger Type", style = MaterialTheme.typography.titleSmall)
+        ExposedDropdownMenuBox(
+            expanded = triggerExpanded,
+            onExpandedChange = { triggerExpanded = !triggerExpanded },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp)
+        ) {
+            OutlinedTextField(
+                value = currentTriggerType,
+                onValueChange = {},
+                readOnly = true,
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = triggerExpanded) },
+                modifier = Modifier
+                    .menuAnchor()
+                    .fillMaxWidth(),
+                textStyle = MaterialTheme.typography.bodyMedium
+            )
+
+            ExposedDropdownMenu(
+                expanded = triggerExpanded,
+                onDismissRequest = { triggerExpanded = false }
+            ) {
+                triggerTypes.forEach { type ->
+                    DropdownMenuItem(
+                        text = { Text(text = type) },
+                        onClick = {
+                            onConfigChange(config.copy(
+                                amplitudeThresholdingEnabled = (type == "Amplitude"),
+                                frequencyTriggerEnabled = (type == "Frequency")
+                            ))
+                            triggerExpanded = false
+                        }
+                    )
+                }
+            }
+        }
+
+        if (config.amplitudeThresholdingEnabled) {
+            Spacer(modifier = Modifier.height(16.dp))
+            val durations = listOf(0, 1, 2, 5, 10, 15, 30, 60)
+            var durationExpanded by remember { mutableStateOf(false) }
+            
+            Text("Minimum trigger duration (s)", style = MaterialTheme.typography.titleSmall)
+            ExposedDropdownMenuBox(
+                expanded = durationExpanded,
+                onExpandedChange = { durationExpanded = !durationExpanded },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp)
+            ) {
+                OutlinedTextField(
+                    value = config.minimumAmplitudeThresholdDuration.toString(),
+                    onValueChange = {},
+                    readOnly = true,
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = durationExpanded) },
+                    modifier = Modifier
+                        .menuAnchor()
+                        .fillMaxWidth(),
+                    textStyle = MaterialTheme.typography.bodyMedium
+                )
+                ExposedDropdownMenu(
+                    expanded = durationExpanded,
+                    onDismissRequest = { durationExpanded = false }
+                ) {
+                    durations.forEach { duration ->
+                        DropdownMenuItem(
+                            text = { Text(duration.toString()) },
+                            onClick = {
+                                onConfigChange(config.copy(minimumAmplitudeThresholdDuration = duration))
+                                durationExpanded = false
+                            }
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+            Text("Threshold", style = MaterialTheme.typography.titleSmall)
+            
+            // Slider from 0.001% to 100%
+            // Use log scale for better control over small percentages if desired, 
+            // but for now a simple linear slider over log-mapped values or just direct mapping.
+            // 0.001% is 0.00001 as a ratio. 100% is 1.0.
+            
+            val minThreshold = 0.00001
+            val maxThreshold = 1.0
+            
+            // Using log scale for the slider to make it easier to select small values like 0.001%
+            val minLog = log10(minThreshold)
+            val maxLog = log10(maxThreshold)
+            val currentLog = log10(config.amplitudeThreshold.coerceAtLeast(minThreshold))
+            
+            Slider(
+                value = currentLog.toFloat(),
+                onValueChange = { 
+                    val newValue = 10.0.pow(it.toDouble())
+                    onConfigChange(config.copy(amplitudeThreshold = newValue)) 
+                },
+                valueRange = minLog.toFloat()..maxLog.toFloat(),
+                modifier = Modifier.fillMaxWidth(),
+                colors = SliderDefaults.colors(
+                    activeTrackColor = MaterialTheme.colorScheme.surfaceVariant,
+                    inactiveTrackColor = MaterialTheme.colorScheme.primary
+                )
+            )
+            
+            val formattedThreshold = String.format(Locale.getDefault(), "%.3f", config.amplitudeThreshold * 100.0)
+            Text(
+                text = "Amplitude Threshold of $formattedThreshold% will be used when generating T.WAV files",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 4.dp)
             )
         }
     }
