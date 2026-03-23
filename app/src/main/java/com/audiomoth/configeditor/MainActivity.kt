@@ -31,6 +31,7 @@ import java.util.Locale
 import kotlinx.coroutines.delay
 import kotlin.math.log10
 import kotlin.math.pow
+import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -704,26 +705,32 @@ fun FilteringTab(
             Spacer(modifier = Modifier.height(16.dp))
             Text("Threshold", style = MaterialTheme.typography.titleSmall)
             
-            // Slider from 0.001% to 100%
-            // Use log scale for better control over small percentages if desired, 
-            // but for now a simple linear slider over log-mapped values or just direct mapping.
-            // 0.001% is 0.00001 as a ratio. 100% is 1.0.
-            
-            val minThreshold = 0.00001
-            val maxThreshold = 1.0
-            
-            // Using log scale for the slider to make it easier to select small values like 0.001%
-            val minLog = log10(minThreshold)
-            val maxLog = log10(maxThreshold)
-            val currentLog = log10(config.amplitudeThreshold.coerceAtLeast(minThreshold))
-            
+            val thresholdSteps = remember {
+                val list = mutableListOf<Double>()
+                // 0.001% to 0.01% in steps of 0.001% (ratio 0.00001 to 0.0001)
+                for (i in 1..10) list.add(i * 0.00001)
+                // 0.01% to 0.1% in steps of 0.01% (ratio 0.0001 to 0.001)
+                for (i in 2..10) list.add(i * 0.0001)
+                // 0.1% to 1% in steps of 0.1% (ratio 0.001 to 0.01)
+                for (i in 2..10) list.add(i * 0.001)
+                // 1% to 10% in steps of 1% (ratio 0.01 to 0.1)
+                for (i in 2..10) list.add(i * 0.01)
+                // 10% to 100% in steps of 10% (ratio 0.1 to 1.0)
+                for (i in 2..10) list.add(i * 0.1)
+                list
+            }
+
+            val currentRatio = config.amplitudeThreshold.coerceIn(0.00001, 1.0)
+            val sliderValue = thresholdSteps.indexOfFirst { it >= currentRatio }.coerceAtLeast(0).toFloat()
+
             Slider(
-                value = currentLog.toFloat(),
+                value = sliderValue,
                 onValueChange = { 
-                    val newValue = 10.0.pow(it.toDouble())
-                    onConfigChange(config.copy(amplitudeThreshold = newValue)) 
+                    val index = it.roundToInt().coerceIn(0, thresholdSteps.size - 1)
+                    onConfigChange(config.copy(amplitudeThreshold = thresholdSteps[index])) 
                 },
-                valueRange = minLog.toFloat()..maxLog.toFloat(),
+                valueRange = 0f..(thresholdSteps.size - 1).toFloat(),
+                steps = thresholdSteps.size - 2,
                 modifier = Modifier.fillMaxWidth(),
                 colors = SliderDefaults.colors(
                     activeTrackColor = MaterialTheme.colorScheme.surfaceVariant,
@@ -731,7 +738,12 @@ fun FilteringTab(
                 )
             )
             
-            val formattedThreshold = String.format(Locale.getDefault(), "%.3f", config.amplitudeThreshold * 100.0)
+            val formattedThreshold = if (config.amplitudeThreshold >= 0.01) {
+                String.format(Locale.getDefault(), "%.1f", config.amplitudeThreshold * 100.0)
+            } else {
+                String.format(Locale.getDefault(), "%.3f", config.amplitudeThreshold * 100.0)
+            }
+
             Text(
                 text = "Amplitude Threshold of $formattedThreshold% will be used when generating T.WAV files",
                 style = MaterialTheme.typography.bodySmall,
