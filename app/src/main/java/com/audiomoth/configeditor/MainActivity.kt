@@ -29,8 +29,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.delay
-import kotlin.math.log10
-import kotlin.math.pow
 import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
@@ -212,12 +210,12 @@ fun EditScreen(
     onCancel: () -> Unit
 ) {
     var editingConfig by remember { mutableStateOf(config) }
-    var showPreview by remember { mutableStateOf(false) }
+    val showPreview = remember { mutableStateOf(false) }
 
-    if (showPreview) {
+    if (showPreview.value) {
         ConfigPreviewDialog(
             config = editingConfig,
-            onDismiss = { showPreview = false }
+            onDismiss = { showPreview.value = false }
         )
     }
 
@@ -275,7 +273,7 @@ fun EditScreen(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             OutlinedButton(
-                onClick = { showPreview = true },
+                onClick = { showPreview.value = true },
                 modifier = Modifier
                     .weight(1f)
                     .height(40.dp)
@@ -301,7 +299,7 @@ fun ConfigTabScreen(
     modifier: Modifier = Modifier
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Recording", "Schedule", "Filtering", "Advanced")
+    val tabs = listOf("Recording", "Schedule", "Filtering", "Trigger", "Advanced")
 
     Column(modifier = modifier) {
         ScrollableTabRow(
@@ -325,7 +323,8 @@ fun ConfigTabScreen(
                 0 -> RecordingTab(config, onConfigChange)
                 1 -> ScheduleTab(config, onConfigChange)
                 2 -> FilteringTab(config, onConfigChange)
-                3 -> AdvancedTab(config, onConfigChange)
+                3 -> TriggerTab(config, onConfigChange)
+                4 -> AdvancedTab(config, onConfigChange)
             }
         }
     }
@@ -548,7 +547,7 @@ fun FilteringTab(
             Spacer(modifier = Modifier.height(8.dp))
             
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text("0 kHz", style = MaterialTheme.typography.labelSmall)
@@ -615,14 +614,37 @@ fun FilteringTab(
                 modifier = Modifier.padding(top = 8.dp)
             )
         }
+    }
+}
 
-        Spacer(modifier = Modifier.height(24.dp))
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TriggerTab(
+    config: AudioMothConfig,
+    onConfigChange: (AudioMothConfig) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
         val triggerTypes = listOf("None", "Amplitude", "Frequency")
         var triggerExpanded by remember { mutableStateOf(false) }
         val currentTriggerType = when {
             config.amplitudeThresholdingEnabled -> "Amplitude"
             config.frequencyTriggerEnabled -> "Frequency"
             else -> "None"
+        }
+
+        val thresholdSteps = remember {
+            val list = mutableListOf<Double>()
+            // 0.001% to 0.01% in steps of 0.001% (ratio 0.00001 to 0.0001)
+            for (i in 1..10) list.add(i * 0.00001)
+            // 0.01% to 0.1% in steps of 0.01% (ratio 0.0001 to 0.001)
+            for (i in 2..10) list.add(i * 0.0001)
+            // 0.1% to 1% in steps of 0.1% (ratio 0.001 to 0.01)
+            for (i in 2..10) list.add(i * 0.001)
+            // 1% to 10% in steps of 1% (ratio 0.01 to 0.1)
+            for (i in 2..10) list.add(i * 0.01)
+            // 10% to 100% in steps of 10% (ratio 0.1 to 1.0)
+            for (i in 2..10) list.add(i * 0.1)
+            list
         }
 
         Text("Trigger Type", style = MaterialTheme.typography.titleSmall)
@@ -705,21 +727,6 @@ fun FilteringTab(
             Spacer(modifier = Modifier.height(16.dp))
             Text("Threshold", style = MaterialTheme.typography.titleSmall)
             
-            val thresholdSteps = remember {
-                val list = mutableListOf<Double>()
-                // 0.001% to 0.01% in steps of 0.001% (ratio 0.00001 to 0.0001)
-                for (i in 1..10) list.add(i * 0.00001)
-                // 0.01% to 0.1% in steps of 0.01% (ratio 0.0001 to 0.001)
-                for (i in 2..10) list.add(i * 0.0001)
-                // 0.1% to 1% in steps of 0.1% (ratio 0.001 to 0.01)
-                for (i in 2..10) list.add(i * 0.001)
-                // 1% to 10% in steps of 1% (ratio 0.01 to 0.1)
-                for (i in 2..10) list.add(i * 0.01)
-                // 10% to 100% in steps of 10% (ratio 0.1 to 1.0)
-                for (i in 2..10) list.add(i * 0.1)
-                list
-            }
-
             val currentRatio = config.amplitudeThreshold.coerceIn(0.00001, 1.0)
             val sliderValue = thresholdSteps.indexOfFirst { it >= currentRatio }.coerceAtLeast(0).toFloat()
 
@@ -750,6 +757,136 @@ fun FilteringTab(
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(top = 4.dp)
             )
+        } else if (config.frequencyTriggerEnabled) {
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            // Window length selector
+            val windowLengths = listOf(16, 32, 64, 128, 256, 512, 1024)
+            var windowExpanded by remember { mutableStateOf(false) }
+            Text("Window length (samples)", style = MaterialTheme.typography.titleSmall)
+            ExposedDropdownMenuBox(
+                expanded = windowExpanded,
+                onExpandedChange = { windowExpanded = !windowExpanded },
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+            ) {
+                OutlinedTextField(
+                    value = config.frequencyTriggerWindowLength.toString(),
+                    onValueChange = {},
+                    readOnly = true,
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = windowExpanded) },
+                    modifier = Modifier.menuAnchor().fillMaxWidth(),
+                    textStyle = MaterialTheme.typography.bodyMedium
+                )
+                ExposedDropdownMenu(
+                    expanded = windowExpanded,
+                    onDismissRequest = { windowExpanded = false }
+                ) {
+                    windowLengths.forEach { length ->
+                        DropdownMenuItem(
+                            text = { Text(length.toString()) },
+                            onClick = {
+                                onConfigChange(config.copy(frequencyTriggerWindowLength = length))
+                                windowExpanded = false
+                            }
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Centre frequency slider
+            Text("Centre frequency", style = MaterialTheme.typography.titleSmall)
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("0 kHz", style = MaterialTheme.typography.labelSmall)
+                Text("24 kHz", style = MaterialTheme.typography.labelSmall)
+            }
+            Slider(
+                value = config.frequencyTriggerCentreFrequency.toFloat(),
+                onValueChange = { onConfigChange(config.copy(frequencyTriggerCentreFrequency = it.toInt())) },
+                valueRange = 0f..24000f,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Text(
+                text = "Centre Frequency of ${config.frequencyTriggerCentreFrequency} Hz will be used",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Minimum trigger duration selector
+            val durations = listOf(0, 1, 2, 5, 10, 15, 30, 60)
+            var durationExpanded by remember { mutableStateOf(false) }
+            Text("Minimum trigger duration (s)", style = MaterialTheme.typography.titleSmall)
+            ExposedDropdownMenuBox(
+                expanded = durationExpanded,
+                onExpandedChange = { durationExpanded = !durationExpanded },
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+            ) {
+                OutlinedTextField(
+                    value = config.minimumFrequencyTriggerDuration.toString(),
+                    onValueChange = {},
+                    readOnly = true,
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = durationExpanded) },
+                    modifier = Modifier.menuAnchor().fillMaxWidth(),
+                    textStyle = MaterialTheme.typography.bodyMedium
+                )
+                ExposedDropdownMenu(
+                    expanded = durationExpanded,
+                    onDismissRequest = { durationExpanded = false }
+                ) {
+                    durations.forEach { duration ->
+                        DropdownMenuItem(
+                            text = { Text(duration.toString()) },
+                            onClick = {
+                                onConfigChange(config.copy(minimumFrequencyTriggerDuration = duration))
+                                durationExpanded = false
+                            }
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Frequency Trigger Threshold slider
+            Text("Threshold", style = MaterialTheme.typography.titleSmall)
+            val currentRatio = config.frequencyTriggerThreshold.coerceIn(0.00001, 1.0)
+            val sliderValue = thresholdSteps.indexOfFirst { it >= currentRatio }.coerceAtLeast(0).toFloat()
+
+            Slider(
+                value = sliderValue,
+                onValueChange = { 
+                    val index = it.roundToInt().coerceIn(0, thresholdSteps.size - 1)
+                    onConfigChange(config.copy(frequencyTriggerThreshold = thresholdSteps[index])) 
+                },
+                valueRange = 0f..(thresholdSteps.size - 1).toFloat(),
+                steps = thresholdSteps.size - 2,
+                modifier = Modifier.fillMaxWidth(),
+                colors = SliderDefaults.colors(
+                    activeTrackColor = MaterialTheme.colorScheme.surfaceVariant,
+                    inactiveTrackColor = MaterialTheme.colorScheme.primary
+                )
+            )
+            
+            val formattedThreshold = if (config.frequencyTriggerThreshold >= 0.01) {
+                String.format(Locale.getDefault(), "%.1f", config.frequencyTriggerThreshold * 100.0)
+            } else {
+                String.format(Locale.getDefault(), "%.3f", config.frequencyTriggerThreshold * 100.0)
+            }
+
+            Text(
+                text = "Frequency Threshold of $formattedThreshold% will be used when generating T.WAV files",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 4.dp)
+            )
         }
     }
 }
@@ -759,11 +896,80 @@ fun AdvancedTab(
     config: AudioMothConfig,
     onConfigChange: (AudioMothConfig) -> Unit
 ) {
-    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
+        // Group 1
+        Text("General", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
             Checkbox(
-                checked = config.batteryLevelCheckEnabled,
-                onCheckedChange = { onConfigChange(config.copy(batteryLevelCheckEnabled = it)) }
+                checked = config.requireAcousticConfig,
+                onCheckedChange = { onConfigChange(config.copy(requireAcousticConfig = it)) }
+            )
+            Text("Always require acoustic chime on switching to CUSTOM", style = MaterialTheme.typography.bodyMedium)
+        }
+        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(
+                checked = config.dailyFolders,
+                onCheckedChange = { onConfigChange(config.copy(dailyFolders = it)) }
+            )
+            Text("Use daily folder for generated WAV files", style = MaterialTheme.typography.bodyMedium)
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Group 2
+        Text("Hardware Settings", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(
+                checked = config.disable48DCFilter,
+                onCheckedChange = { onConfigChange(config.copy(disable48DCFilter = it)) }
+            )
+            Text("Disable 48Hz DC blocking filter", style = MaterialTheme.typography.bodyMedium)
+        }
+        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(
+                checked = config.energySaverModeEnabled,
+                onCheckedChange = { onConfigChange(config.copy(energySaverModeEnabled = it)) }
+            )
+            Text("Enable energy saver mode", style = MaterialTheme.typography.bodyMedium)
+        }
+        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(
+                checked = config.lowGainRangeEnabled,
+                onCheckedChange = { onConfigChange(config.copy(lowGainRangeEnabled = it)) }
+            )
+            Text("Enable low gain range", style = MaterialTheme.typography.bodyMedium)
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Group 3
+        Text("External Modules", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(
+                checked = config.magneticSwitchEnabled,
+                onCheckedChange = { onConfigChange(config.copy(magneticSwitchEnabled = it)) }
+            )
+            Text("Enable magnetic switch for delayed start", style = MaterialTheme.typography.bodyMedium)
+        }
+        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(
+                checked = config.timeSettingFromGPSEnabled,
+                onCheckedChange = { onConfigChange(config.copy(timeSettingFromGPSEnabled = it)) }
+            )
+            Text("Enable GPS for time setting", style = MaterialTheme.typography.bodyMedium)
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Text("Battery", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(
+                checked = config.minimumBatteryVoltage > 0,
+                onCheckedChange = { 
+                    onConfigChange(config.copy(
+                        minimumBatteryVoltage = if (it) 33 else 0
+                    )) 
+                }
             )
             Text("Enable Battery Level Check", style = MaterialTheme.typography.bodyMedium)
         }
@@ -835,17 +1041,17 @@ fun PeriodItem(
     onDelete: () -> Unit,
     onUpdate: (TimePeriod) -> Unit
 ) {
-    var showTimePicker by remember { mutableStateOf(false) }
+    val showTimePicker = remember { mutableStateOf(false) }
     var pickingStart by remember { mutableStateOf(true) }
 
-    if (showTimePicker) {
+    if (showTimePicker.value) {
         val state = rememberTimePickerState(
             initialHour = (if (pickingStart) period.startMins else period.endMins) / 60,
             initialMinute = (if (pickingStart) period.startMins else period.endMins) % 60,
             is24Hour = true
         )
         AlertDialog(
-            onDismissRequest = { showTimePicker = false },
+            onDismissRequest = { showTimePicker.value = false },
             confirmButton = {
                 TextButton(onClick = {
                     val newMins = state.hour * 60 + state.minute
@@ -854,11 +1060,11 @@ fun PeriodItem(
                     } else {
                         onUpdate(period.copy(endMins = newMins.coerceAtLeast(period.startMins)))
                     }
-                    showTimePicker = false
+                    showTimePicker.value = false
                 }) { Text("OK") }
             },
             dismissButton = {
-                TextButton(onClick = { showTimePicker = false }) { Text("Cancel") }
+                TextButton(onClick = { showTimePicker.value = false }) { Text("Cancel") }
             },
             text = { TimePicker(state = state) }
         )
@@ -882,7 +1088,7 @@ fun PeriodItem(
                 fontSize = 16.sp,
                 modifier = Modifier.clickable { 
                     pickingStart = true
-                    showTimePicker = true 
+                    showTimePicker.value = true 
                 }
             )
             Text(" — ", style = MaterialTheme.typography.titleMedium)
@@ -892,7 +1098,7 @@ fun PeriodItem(
                 fontSize = 16.sp,
                 modifier = Modifier.clickable { 
                     pickingStart = false
-                    showTimePicker = true 
+                    showTimePicker.value = true
                 }
             )
             

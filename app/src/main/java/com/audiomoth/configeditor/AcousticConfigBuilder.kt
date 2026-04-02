@@ -46,7 +46,7 @@ object AcousticConfigBuilder {
         var settings = 0
         if (config.ledEnabled) settings = settings or (1 shl 0)
         if (config.lowVoltageCutoffEnabled) settings = settings or (1 shl 1)
-        if (config.batteryLevelCheckEnabled) settings = settings or (1 shl 2)
+        if (config.minimumBatteryVoltage > 0) settings = settings or (1 shl 2)
         if (config.dutyEnabled) settings = settings or (1 shl 6)
         if (config.passFiltersEnabled) settings = settings or (1 shl 7)
         buffer.put(settings.toByte())

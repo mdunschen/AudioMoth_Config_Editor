@@ -10,8 +10,8 @@ data class AudioMothConfig(
     val ledEnabled: Boolean = true,
     @SerializedName("lowVoltageCutoffEnabled")
     val lowVoltageCutoffEnabled: Boolean = true,
-    @SerializedName("batteryLevelCheckEnabled")
-    val batteryLevelCheckEnabled: Boolean = true,
+    @SerializedName("minimumBatteryVoltage")
+    val minimumBatteryVoltage: Int = 33,
     @SerializedName("sampleRate")
     val sampleRate: Int = 48000,
     @SerializedName("gain")
