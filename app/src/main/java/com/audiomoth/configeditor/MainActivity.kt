@@ -1,6 +1,11 @@
 package com.audiomoth.configeditor
 
+import android.content.Context
+import android.hardware.usb.UsbConstants
+import android.hardware.usb.UsbDevice
+import android.hardware.usb.UsbManager
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -104,6 +109,10 @@ fun MainScreen() {
                     onNewConfig = {
                         selectedConfig = AudioMothConfig()
                         currentScreen = Screen.EDIT
+                    },
+                    onTestUsb = {
+                        val usbInfo = checkUsbDevices(context)
+                        Toast.makeText(context, usbInfo, Toast.LENGTH_LONG).show()
                     }
                 )
                 Screen.EDIT -> EditScreen(
@@ -123,6 +132,47 @@ fun MainScreen() {
     }
 }
 
+private fun checkUsbDevices(context: Context): String {
+    val usbManager = context.getSystemService(Context.USB_SERVICE) as UsbManager
+    val deviceList = usbManager.deviceList
+    if (deviceList.isEmpty()) {
+        return "No USB devices detected"
+    }
+
+    val info = StringBuilder()
+    var hidCount = 0
+
+    deviceList.values.forEach { device ->
+        var isHid = false
+        // Check device class
+        if (device.deviceClass == UsbConstants.USB_CLASS_HID) {
+            isHid = true
+        } else {
+            // Check interfaces for HID class
+            for (i in 0 until device.interfaceCount) {
+                if (device.getInterface(i).interfaceClass == UsbConstants.USB_CLASS_HID) {
+                    isHid = true
+                    break
+                }
+            }
+        }
+
+        if (isHid) {
+            hidCount++
+            info.append("HID Device Found:\n")
+            info.append("Vendor ID: 0x${Integer.toHexString(device.vendorId).uppercase()}\n")
+            info.append("Product ID: 0x${Integer.toHexString(device.productId).uppercase()}\n")
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+                info.append("Manufacturer: ${device.manufacturerName}\n")
+                info.append("Product: ${device.productName}\n")
+            }
+            info.append("-------------------\n")
+        }
+    }
+
+    return if (hidCount > 0) info.toString() else "USB devices found, but no HID devices detected."
+}
+
 enum class Screen {
     HOME, EDIT
 }
@@ -130,7 +180,8 @@ enum class Screen {
 @Composable
 fun HomeScreen(
     onLoadConfig: () -> Unit,
-    onNewConfig: () -> Unit
+    onNewConfig: () -> Unit,
+    onTestUsb: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -144,6 +195,8 @@ fun HomeScreen(
                 .fillMaxWidth()
                 .height(56.dp)
         ) {
+            Icon(Icons.Default.Add, contentDescription = null)
+            Spacer(modifier = Modifier.width(8.dp))
             Text("Create New Configuration")
         }
 
@@ -155,7 +208,22 @@ fun HomeScreen(
                 .fillMaxWidth()
                 .height(56.dp)
         ) {
+            Icon(Icons.Default.FileOpen, contentDescription = null)
+            Spacer(modifier = Modifier.width(8.dp))
             Text("Load Configuration from File")
+        }
+
+        Spacer(modifier = Modifier.height(32.dp))
+
+        OutlinedButton(
+            onClick = onTestUsb,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp)
+        ) {
+            Icon(Icons.Default.Usb, contentDescription = null)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Test USB HID Connection")
         }
     }
 }
