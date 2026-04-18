@@ -1,10 +1,17 @@
 package com.audiomoth.configeditor
 
+import android.app.PendingIntent
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.hardware.usb.UsbConstants
 import android.hardware.usb.UsbDevice
+import android.hardware.usb.UsbDeviceConnection
 import android.hardware.usb.UsbManager
+import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -12,9 +19,12 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -22,11 +32,14 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.audiomoth.configeditor.ui.theme.AudioMothConfigEditorTheme
@@ -36,20 +49,263 @@ import java.util.Locale
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
+data class AudioMothDeviceInfo(
+    val deviceId: String = "Unknown",
+    val firmwareVersion: String = "Unknown",
+    val batteryState: String = "Unknown",
+    val deviceTime: String = "Unknown"
+)
+
 class MainActivity : ComponentActivity() {
+    private val ACTION_USB_PERMISSION = "com.audiomoth.configeditor.USB_PERMISSION"
+    private var onPermissionResult: ((Boolean, UsbDevice?) -> Unit)? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        Log.d("USB", "App Started - Scanning devices")
+        val initialDevice = findAudioMothDevice(this)
+        if (initialDevice != null) {
+            Log.d("USB", "Found device on start, requesting permission")
+            requestUsbPermission(initialDevice)
+        }
+
         setContent {
             AudioMothConfigEditorTheme {
-                MainScreen()
+                var deviceInfo by remember { mutableStateOf<AudioMothDeviceInfo?>(null) }
+                
+                // Set up the listener for initial permission request
+                onPermissionResult = { granted, usbDevice ->
+                    if (granted && usbDevice != null) {
+                        deviceInfo = readDeviceInfo(usbDevice)
+                    }
+                }
+
+                MainScreen(
+                    deviceInfo = deviceInfo,
+                    onRequestUsbPermission = { device ->
+                        onPermissionResult = { granted, usbDevice ->
+                            if (granted && usbDevice != null) {
+                                deviceInfo = readDeviceInfo(usbDevice)
+                            } else {
+                                deviceInfo = null
+                            }
+                        }
+                        requestUsbPermission(device)
+                    }
+                )
             }
         }
+    }
+
+    private fun readDeviceInfo(device: UsbDevice): AudioMothDeviceInfo {
+        val usbManager = getSystemService(Context.USB_SERVICE) as UsbManager
+        Log.d("USB", "Opening device: VID=${"0x%04X".format(device.vendorId)} PID=${"0x%04X".format(device.productId)}")
+        
+        val connection = usbManager.openDevice(device) ?: return AudioMothDeviceInfo(deviceId = "Failed to open")
+        
+        return try {
+            // Log all interfaces for debugging
+            for (i in 0 until device.interfaceCount) {
+                val intf = device.getInterface(i)
+                Log.d("USB", "Interface $i: Class=${intf.interfaceClass} Subclass=${intf.interfaceSubclass} Protocol=${intf.interfaceProtocol}")
+            }
+
+            // Find the HID interface explicitly
+            val usbInterface = (0 until device.interfaceCount)
+                .map { device.getInterface(it) }
+                .find { it.interfaceClass == UsbConstants.USB_CLASS_HID || it.id == 0 }
+                ?: return AudioMothDeviceInfo(deviceId = "No suitable interface")
+
+            val interfaceId = usbInterface.id
+            Log.d("USB", "Claiming HID Interface ID: $interfaceId")
+            
+            // Try to set configuration (often required on Android for some HID devices)
+            try {
+                if (device.configurationCount > 0) {
+                    connection.setConfiguration(device.getConfiguration(0))
+                }
+            } catch (e: Exception) {
+                Log.w("USB", "Failed to set configuration: ${e.message}")
+            }
+
+            if (!connection.claimInterface(usbInterface, true)) {
+                return AudioMothDeviceInfo(deviceId = "Failed to claim interface")
+            }
+
+            val packetSize = 64
+            var lastError: String? = null
+
+            fun getReport(commandByte: Byte, commandName: String): ByteArray {
+                val response = ByteArray(packetSize)
+                
+                // Expanded search: Try Report IDs 0, 1, and commandByte
+                // Try Report Types 0x03 (Feature) and 0x01 (Input)
+                val reportIds = listOf(0x00, 0x01, commandByte.toInt() and 0xFF)
+                val reportTypes = listOf(0x03, 0x01)
+                
+                // Try different Request Types: 0xA1 (Interface), 0xC1 (Endpoint/Other)
+                val requestTypes = listOf(0xA1, 0xC1)
+
+                for (reqType in requestTypes) {
+                    for (type in reportTypes) {
+                        for (id in reportIds.distinct()) {
+                            val wValue = (type shl 8) or id
+                            
+                            // Try both 64-byte and smaller 13-byte requests
+                            for (len in listOf(64, 13)) {
+                                Log.d("USB", "Trying Direct GET $commandName: reqType=0x${"%02X".format(reqType)}, type=$type, id=$id, len=$len")
+                                val received = connection.controlTransfer(reqType, 0x01, wValue, interfaceId, response, len, 500)
+                                if (received >= 0) {
+                                    Log.d("USB", "Success: Direct GET $commandName (Req 0x${"%02X".format(reqType)}, Type $type, ID $id, Len $len, Received $received)")
+                                    val result = if (id == commandByte.toInt() && commandByte != 0.toByte()) {
+                                        ByteArray(packetSize).apply { 
+                                            this[0] = response[0]
+                                            this[1] = commandByte
+                                            System.arraycopy(response, 1, this, 2, Math.min(len - 1, packetSize - 2))
+                                        }
+                                    } else response
+                                    return result
+                                }
+                            }
+
+                            // 2. Try Two-Step (Command in packet)
+                            val packet = ByteArray(packetSize)
+                            packet[0] = id.toByte()
+                            packet[1] = commandByte
+                            Log.d("USB", "Trying Two-Step SET $commandName: type=$type, id=$id")
+                            val sent = connection.controlTransfer(0x21, 0x09, wValue, interfaceId, packet, 64, 500)
+                            if (sent >= 0) {
+                                Thread.sleep(50)
+                                Log.d("USB", "Trying Two-Step GET $commandName: reqType=0x${"%02X".format(reqType)}, type=$type, id=$id")
+                                val received = connection.controlTransfer(reqType, 0x01, wValue, interfaceId, response, 64, 500)
+                                if (received >= 0) {
+                                    Log.d("USB", "Success: Two-Step $commandName (Req 0x${"%02X".format(reqType)}, Type $type, ID $id, Received $received)")
+                                    return response
+                                }
+                            }
+                        }
+                    }
+                }
+
+                lastError = "Err: $commandName (Stall)"
+                return response
+            }
+
+            val timeResponse = getReport(0x01, "GET_TIME")
+            lastError?.let { return AudioMothDeviceInfo(deviceId = it) }
+
+            val uidResponse = getReport(0x03, "GET_UID")
+            lastError?.let { return AudioMothDeviceInfo(deviceId = it) }
+
+            val versionResponse = getReport(0x07, "GET_VERSION")
+            lastError?.let { return AudioMothDeviceInfo(deviceId = it) }
+
+            val batteryResponse = getReport(0x04, "GET_BATTERY")
+            lastError?.let { return AudioMothDeviceInfo(deviceId = it) }
+
+            connection.releaseInterface(usbInterface)
+
+            // AudioMoth responses: Index 0 = Report ID (0), Index 1 = Command, Index 2+ = Data
+            
+            // Parse Time (bytes 2-5)
+            val timestamp = if (timeResponse[1] == 0x01.toByte()) {
+                (timeResponse[2].toLong() and 0xFF) or
+                ((timeResponse[3].toLong() and 0xFF) shl 8) or
+                ((timeResponse[4].toLong() and 0xFF) shl 16) or
+                ((timeResponse[5].toLong() and 0xFF) shl 24)
+            } else 0L
+            
+            val deviceTime = if (timestamp == 0L) "Not Set" else {
+                SimpleDateFormat("HH:mm:ss dd/MM/yyyy", Locale.getDefault()).format(Date(timestamp * 1000))
+            }
+
+            // Parse UID (bytes 2-9)
+            val uid = if (uidResponse[1] == 0x03.toByte()) {
+                uidResponse.sliceArray(2..9).reversedArray().joinToString("") { "%02X".format(it) }
+            } else ""
+
+            // Parse Version (Bytes 2, 3, 4 = Major, Minor, Patch)
+            val version = if (versionResponse[1] == 0x07.toByte()) {
+                "${versionResponse[2]}.${versionResponse[3]}.${versionResponse[4]}"
+            } else "Unknown"
+
+            val batteryState = if (batteryResponse[1] == 0x04.toByte()) {
+                val state = batteryResponse[2].toInt() and 0xFF
+                when (state) {
+                    0 -> "< 3.3V"
+                    1 -> "3.3V - 3.5V"
+                    2 -> "3.5V - 3.7V"
+                    3 -> "3.7V - 3.9V"
+                    4 -> "> 3.9V"
+                    else -> "Unknown ($state)"
+                }
+            } else "Unknown"
+
+            AudioMothDeviceInfo(
+                deviceId = if (uid.isEmpty()) "VID:${"0x%04X".format(device.vendorId)} PID:${"0x%04X".format(device.productId)}" else uid,
+                firmwareVersion = version,
+                batteryState = batteryState,
+                deviceTime = deviceTime
+            )
+        } catch (e: Exception) {
+            Log.e("USB", "Error reading info", e)
+            AudioMothDeviceInfo(deviceId = "Error: ${e.message}")
+        } finally {
+            connection.close()
+        }
+    }
+
+    private fun requestUsbPermission(device: UsbDevice) {
+        val usbManager = getSystemService(Context.USB_SERVICE) as UsbManager
+        val permissionIntent = PendingIntent.getBroadcast(
+            this, 
+            0, 
+            Intent(ACTION_USB_PERMISSION), 
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0
+        )
+        
+        val filter = IntentFilter(ACTION_USB_PERMISSION)
+        val usbReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                if (ACTION_USB_PERMISSION == intent.action) {
+                    synchronized(this) {
+                        val grantedDevice: UsbDevice? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            intent.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
+                        } else {
+                            @Suppress("DEPRECATION")
+                            intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
+                        }
+                        
+                        val granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
+                        onPermissionResult?.invoke(granted, grantedDevice)
+                        
+                        if (granted) {
+                            Toast.makeText(context, "Reading device info...", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(context, "Permission denied", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    unregisterReceiver(this)
+                }
+            }
+        }
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(usbReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(usbReceiver, filter)
+        }
+        usbManager.requestPermission(device, permissionIntent)
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreen() {
+fun MainScreen(
+    deviceInfo: AudioMothDeviceInfo?,
+    onRequestUsbPermission: (UsbDevice) -> Unit
+) {
     var currentScreen by remember { mutableStateOf(Screen.HOME) }
     var selectedConfig by remember { mutableStateOf<AudioMothConfig?>(null) }
     val context = LocalContext.current
@@ -103,6 +359,7 @@ fun MainScreen() {
         Box(modifier = Modifier.padding(innerPadding)) {
             when (currentScreen) {
                 Screen.HOME -> HomeScreen(
+                    deviceInfo = deviceInfo,
                     onLoadConfig = {
                         openDocumentLauncher.launch(arrayOf("*/*"))
                     },
@@ -111,8 +368,12 @@ fun MainScreen() {
                         currentScreen = Screen.EDIT
                     },
                     onTestUsb = {
-                        val usbInfo = checkUsbDevices(context)
-                        Toast.makeText(context, usbInfo, Toast.LENGTH_LONG).show()
+                        val device = findAudioMothDevice(context)
+                        if (device != null) {
+                            onRequestUsbPermission(device)
+                        } else {
+                            Toast.makeText(context, "No AudioMoth HID device detected", Toast.LENGTH_LONG).show()
+                        }
                     }
                 )
                 Screen.EDIT -> EditScreen(
@@ -132,23 +393,19 @@ fun MainScreen() {
     }
 }
 
-private fun checkUsbDevices(context: Context): String {
+private fun findAudioMothDevice(context: Context): UsbDevice? {
     val usbManager = context.getSystemService(Context.USB_SERVICE) as UsbManager
-    val deviceList = usbManager.deviceList
-    if (deviceList.isEmpty()) {
-        return "No USB devices detected"
-    }
+    val devices = usbManager.deviceList.values
+    
+    Log.d("USB", "Scanning ${devices.size} USB devices...")
+    
+    return devices.find { device ->
+        val vid = device.vendorId
+        val pid = device.productId
+        Log.d("USB", "Checking Device: VID=${"0x%04X".format(vid)} PID=${"0x%04X".format(pid)}")
 
-    val info = StringBuilder()
-    var hidCount = 0
-
-    deviceList.values.forEach { device ->
-        var isHid = false
-        // Check device class
-        if (device.deviceClass == UsbConstants.USB_CLASS_HID) {
-            isHid = true
-        } else {
-            // Check interfaces for HID class
+        var isHid = device.deviceClass == UsbConstants.USB_CLASS_HID
+        if (!isHid) {
             for (i in 0 until device.interfaceCount) {
                 if (device.getInterface(i).interfaceClass == UsbConstants.USB_CLASS_HID) {
                     isHid = true
@@ -156,21 +413,18 @@ private fun checkUsbDevices(context: Context): String {
                 }
             }
         }
-
-        if (isHid) {
-            hidCount++
-            info.append("HID Device Found:\n")
-            info.append("Vendor ID: 0x${Integer.toHexString(device.vendorId).uppercase()}\n")
-            info.append("Product ID: 0x${Integer.toHexString(device.productId).uppercase()}\n")
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
-                info.append("Manufacturer: ${device.manufacturerName}\n")
-                info.append("Product: ${device.productName}\n")
-            }
-            info.append("-------------------\n")
+        
+        // Match specific AudioMoth VIDs or any HID if no specific match
+        val isAudioMoth = (vid == 0x10C4 && pid == 0x0001) || (vid == 0x10C4 && pid == 0x0002) || (vid == 0x04D8 && pid == 0xEF98)
+        
+        if (isAudioMoth) {
+            Log.d("USB", "Found AudioMoth matched by VID/PID")
+        } else if (isHid) {
+            Log.d("USB", "Found generic HID device: VID=${"0x%04X".format(vid)} PID=${"0x%04X".format(pid)}")
         }
+        
+        isAudioMoth || isHid
     }
-
-    return if (hidCount > 0) info.toString() else "USB devices found, but no HID devices detected."
 }
 
 enum class Screen {
@@ -179,6 +433,7 @@ enum class Screen {
 
 @Composable
 fun HomeScreen(
+    deviceInfo: AudioMothDeviceInfo?,
     onLoadConfig: () -> Unit,
     onNewConfig: () -> Unit,
     onTestUsb: () -> Unit
@@ -187,8 +442,13 @@ fun HomeScreen(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp),
-        verticalArrangement = Arrangement.Center
+        verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically)
     ) {
+        if (deviceInfo != null) {
+            DeviceDiagnosticCard(deviceInfo)
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+
         Button(
             onClick = onNewConfig,
             modifier = Modifier
@@ -199,8 +459,6 @@ fun HomeScreen(
             Spacer(modifier = Modifier.width(8.dp))
             Text("Create New Configuration")
         }
-
-        Spacer(modifier = Modifier.height(16.dp))
 
         Button(
             onClick = onLoadConfig,
@@ -213,7 +471,7 @@ fun HomeScreen(
             Text("Load Configuration from File")
         }
 
-        Spacer(modifier = Modifier.height(32.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
         OutlinedButton(
             onClick = onTestUsb,
@@ -223,8 +481,67 @@ fun HomeScreen(
         ) {
             Icon(Icons.Default.Usb, contentDescription = null)
             Spacer(modifier = Modifier.width(8.dp))
-            Text("Test USB HID Connection")
+            Text(if (deviceInfo == null) "Connect & Read AudioMoth" else "Refresh Device Info")
         }
+    }
+}
+
+@Composable
+fun DeviceDiagnosticCard(info: AudioMothDeviceInfo) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp)),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.Info,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    "Device Diagnostics",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+            
+            Divider(color = MaterialTheme.colorScheme.outlineVariant)
+            
+            DiagnosticRow("Unique ID", info.deviceId)
+            DiagnosticRow("Firmware", info.firmwareVersion)
+            DiagnosticRow("Battery", info.batteryState)
+            DiagnosticRow("Device Time", info.deviceTime)
+        }
+    }
+}
+
+@Composable
+fun DiagnosticRow(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
     }
 }
 
