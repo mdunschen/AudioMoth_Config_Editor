@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Empty filter to match all devices for testing, or add specific ones later -->
+    <usb-device vendor-id="0x10C4" product-id="0x0001" />
+    <usb-device vendor-id="0x10C4" product-id="0x0002" />
+    <usb-device vendor-id="0x04D8" product-id="0xEF98" />
 </resources>
