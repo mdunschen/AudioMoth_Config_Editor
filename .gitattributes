@@ -1,0 +1,14 @@
+# Keep Unix shell scripts valid on GitHub Actions runners
+* text=auto
+
+# Gradle wrapper and shell scripts must use LF on Linux/macOS
+gradlew text eol=lf
+*.sh text eol=lf
+
+# Workflow files should also use LF
+.github/workflows/*.yml text eol=lf
+.github/workflows/*.yaml text eol=lf
+
+# Windows launcher should keep CRLF
+*.bat text eol=crlf
+
