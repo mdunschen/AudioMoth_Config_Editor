@@ -62,6 +62,33 @@ data class AudioMothDeviceInfo(
     val debugLog: String = ""
 )
 
+private fun formatFirmwareLabel(info: AudioMothDeviceInfo?): String {
+    if (info == null) return ""
+    val descRaw = info.firmwareDescription
+    val versionRaw = info.firmwareVersion
+
+    val desc = if (descRaw.isNotBlank() && descRaw != "Unknown") descRaw else ""
+    val version = if (versionRaw.isNotBlank() && versionRaw != "Unknown") versionRaw else ""
+
+    if (desc.isEmpty()) return version
+
+    // Remove any leading "AudioMoth" and "Firmware" tokens (case-insensitive), plus surrounding separators
+    var cleaned = desc.replace(Regex("(?i)AudioMoth[-_ ]*Firmware"), "")
+    // Trim separators and whitespace
+    cleaned = cleaned.replace(Regex("^[\\s\\-_:]+|[\\s\\-_:]+$"), "").trim()
+
+    // If the cleaned description already contains a version-like token, don't append the separate firmwareVersion
+    val versionPattern = Regex("\\d+\\.\\d+(?:\\.\\d+)?")
+    val hasVersionInDesc = versionPattern.containsMatchIn(cleaned)
+
+    return when {
+        cleaned.isNotEmpty() && hasVersionInDesc -> cleaned
+        cleaned.isNotEmpty() && version.isNotEmpty() -> "$cleaned $version"
+        cleaned.isNotEmpty() -> cleaned
+        else -> version
+    }
+}
+
 private data class ApplyUsbResult(
     val applied: Boolean,
     val debugLog: String
@@ -1354,7 +1381,7 @@ fun DeviceStatusCard(info: AudioMothDeviceInfo?, isDeviceConnected: Boolean) {
             )
             DiagnosticRow(
                 label = "Firmware",
-                value = info?.firmwareDescription?.ifBlank { info.firmwareVersion }.orEmpty(),
+                value = formatFirmwareLabel(info),
                 labelColor = labelColor,
                 valueColor = valueColor
             )
