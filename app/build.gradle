@@ -12,14 +12,14 @@ if (keystorePropertiesFile.exists()) {
 
 android {
     namespace 'com.audiomoth.configeditor'
-    compileSdk 34
+    compileSdk 35
 
     defaultConfig {
         applicationId "com.audiomoth.configeditor"
         minSdk 24
-        targetSdk 34
+        targetSdk 35
         // Bumped for a new build so testers can confirm they have the latest APK
-        versionCode 2
+        versionCode 3
         versionName "1.0.1"
     }
 
