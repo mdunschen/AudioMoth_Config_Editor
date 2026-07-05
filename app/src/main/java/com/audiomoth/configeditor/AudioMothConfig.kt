@@ -91,3 +91,12 @@ data class TimePeriod(
     @SerializedName("endMins")
     val endMins: Int
 )
+
+fun AudioMothConfig.scheduleValidationMessage(): String? {
+    return if (timePeriods.isEmpty()) {
+        "This config is not valid: add at least one recording schedule before saving or applying."
+    } else {
+        null
+    }
+}
+

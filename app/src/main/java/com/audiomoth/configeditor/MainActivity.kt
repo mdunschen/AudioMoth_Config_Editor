@@ -3,7 +3,6 @@ package com.audiomoth.configeditor
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
-import android.content.Context.USB_SERVICE
 import android.content.Intent
 import android.content.IntentFilter
 import android.hardware.usb.UsbConstants
@@ -963,12 +962,25 @@ fun MainScreen(
                     deviceInfo = deviceInfo,
                     onSave = { config ->
                         selectedConfig = config
-                        val sdf = SimpleDateFormat("yyyyMMdd_HHmm", Locale.getDefault())
-                        val fileName = "audiomoth${sdf.format(Date())}.config"
-                        createDocumentLauncher.launch(fileName)
+                        val validationMessage = config.scheduleValidationMessage()
+                        if (validationMessage != null) {
+                            Toast.makeText(context, validationMessage, Toast.LENGTH_LONG).show()
+                        } else {
+                            val sdf = SimpleDateFormat("yyyyMMdd_HHmm", Locale.getDefault())
+                            val fileName = "audiomoth${sdf.format(Date())}.config"
+                            createDocumentLauncher.launch(fileName)
+                        }
                     },
                     onApplyUsb = { config ->
-                        connectedDevice?.let { onApplyConfig(it, config) }
+                        val validationMessage = config.scheduleValidationMessage()
+                        if (validationMessage != null) {
+                            Toast.makeText(context, validationMessage, Toast.LENGTH_LONG).show()
+                        } else {
+                            val device = connectedDevice
+                            if (device != null) {
+                                onApplyConfig(device, config)
+                            }
+                        }
                     },
                     onCancel = {
                         currentScreen = Screen.HOME
@@ -1567,7 +1579,11 @@ fun ScheduleTab(
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = {
-                val newPeriod = TimePeriod(startMins = 0, endMins = 60)
+                val newPeriod = if (config.timePeriods.isEmpty()) {
+                    TimePeriod(startMins = 0, endMins = 1440)
+                } else {
+                    TimePeriod(startMins = 0, endMins = 60)
+                }
                 onConfigChange(config.copy(timePeriods = (config.timePeriods + newPeriod).sortedBy { it.startMins }))
             }) {
                 Icon(Icons.Default.Add, contentDescription = "Add Period", modifier = Modifier.size(24.dp))
@@ -2163,20 +2179,26 @@ fun PeriodItem(
     var pickingStart by remember { mutableStateOf(true) }
 
     if (showTimePicker.value) {
+        val initialMinutes = when {
+            pickingStart -> period.startMins
+            period.endMins == 1440 -> 0
+            else -> period.endMins
+        }
         val state = rememberTimePickerState(
-            initialHour = (if (pickingStart) period.startMins else period.endMins) / 60,
-            initialMinute = (if (pickingStart) period.startMins else period.endMins) % 60,
+            initialHour = initialMinutes / 60,
+            initialMinute = initialMinutes % 60,
             is24Hour = true
         )
         AlertDialog(
             onDismissRequest = { showTimePicker.value = false },
             confirmButton = {
                 TextButton(onClick = {
-                    val newMins = state.hour * 60 + state.minute
                     if (pickingStart) {
+                        val newMins = state.hour * 60 + state.minute
                         onUpdate(period.copy(startMins = newMins.coerceAtMost(period.endMins)))
                     } else {
-                        onUpdate(period.copy(endMins = newMins.coerceAtLeast(period.startMins)))
+                        val selectedEndMins = if (state.hour == 0 && state.minute == 0) 1440 else state.hour * 60 + state.minute
+                        onUpdate(period.copy(endMins = selectedEndMins.coerceIn(period.startMins, 1440)))
                     }
                     showTimePicker.value = false
                 }) { Text("OK") }
@@ -2235,6 +2257,7 @@ fun PeriodItem(
 }
 
 fun formatMins(mins: Int): String {
+    if (mins == 1440) return "24:00"
     val h = (mins / 60) % 24
     val m = mins % 60
     return String.format(Locale.getDefault(), "%02d:%02d", h, m)
