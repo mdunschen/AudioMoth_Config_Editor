@@ -4,6 +4,12 @@ plugins {
     id 'org.jetbrains.kotlin.plugin.compose'
 }
 
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file("keystore.properties")
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
 android {
     namespace 'com.audiomoth.configeditor'
     compileSdk 34
@@ -17,10 +23,34 @@ android {
         versionName "1.0.1"
     }
 
+    signingConfigs {
+        release {
+            def envStoreFile = System.getenv("AUDIOMOTH_RELEASE_STORE_FILE")
+            def envStorePassword = System.getenv("AUDIOMOTH_RELEASE_STORE_PASSWORD")
+            def envKeyAlias = System.getenv("AUDIOMOTH_RELEASE_KEY_ALIAS")
+            def envKeyPassword = System.getenv("AUDIOMOTH_RELEASE_KEY_PASSWORD")
+
+            def configuredStoreFile = envStoreFile ?: keystoreProperties['storeFile']
+            def configuredStorePassword = envStorePassword ?: keystoreProperties['storePassword']
+            def configuredKeyAlias = envKeyAlias ?: keystoreProperties['keyAlias']
+            def configuredKeyPassword = envKeyPassword ?: keystoreProperties['keyPassword']
+
+            if (configuredStoreFile && configuredStorePassword && configuredKeyAlias && configuredKeyPassword) {
+                storeFile file(configuredStoreFile)
+                storePassword configuredStorePassword
+                keyAlias configuredKeyAlias
+                keyPassword configuredKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            if (signingConfigs.release.storeFile != null) {
+                signingConfig signingConfigs.release
+            }
         }
     }
     
