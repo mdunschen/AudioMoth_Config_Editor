@@ -1,11 +1,11 @@
 # AudioMoth Config Editor (Android)
 
-A compact Android app to create and apply AudioMoth recording configurations via USB HID. The app is a mobile-friendly editor; it no longer attempts to read a full device configuration from the AudioMoth. The device exposes only a small diagnostics set over USB (Device ID, firmware description, battery level and device time) — the editor opens with a local configuration that you then apply to the device.
+A compact Android app to create and apply AudioMoth recording configurations via USB HID. The app is a mobile-friendly editor. The device exposes only a small diagnostics set over USB (Device ID, firmware description, battery level and device time) — the editor opens with a local configuration that you then apply to the device.
 
 ## Key points
 - Editor opens automatically when an AudioMoth is connected (after you grant USB permission).
-- The app only reads supported device metadata: Device ID, firmware description, battery and device time.
-- The app does NOT attempt to read the full recorded config from the device — that read path and caching were removed intentionally.
+- The app reads supported device metadata: Device ID, firmware description, battery and device time.
+- The app does NOT attempt to read the full recorded config from the device — this is not supported for the basic audiomoth firmware.
 - Diagnostics and the debug log are available on-demand via the Info (i) button or the "Device Diagnostics" button (they are not shown automatically).
 - Dark mode: follows system theme.
 
@@ -63,26 +63,7 @@ A compact Android app to create and apply AudioMoth recording configurations via
 - Minimal CI workflow added: `.github/workflows/android-ci.yml`
   - Runs on push to `main/master` and on pull requests
   - Steps: checkout, set up JDK, normalize `gradlew` line endings, make `gradlew` executable, compile, build debug APK, upload debug APK as artifact
-  - If you want Play Store publishing later, we can extend the workflow to produce a signed AAB and push to Play using encrypted secrets.
-
-## Common issues & fixes
-- `gradlew` syntax error on Linux runners (e.g. “Syntax error: "(" unexpected”): typically caused by corrupted `gradlew` or CRLF endings. Fixed in this repo by regenerating a correct `gradlew` and adding `.gitattributes`. If you modify wrapper files on Windows, make sure Git preserves LF for shell scripts (the repo now includes `.gitattributes` to enforce that).
-- If the workflow cannot find the APK to upload, add a listing step before artifact upload:
-  - `run: ls -R app/build/outputs/apk`
-  - then confirm exact path and upload that explicit file (`app-debug.apk`).
-
-## Versioning and releases
-- Bump `versionCode` and `versionName` in your app module prior to a release (commonly in `app/build.gradle` or `app/build.gradle.kts`).
-- For Play Store: create a release keystore, set up `signingConfig` in your Gradle script, build an Android App Bundle (`.aab`) and follow Play Console steps.
-
-## Releases and signing (short)
-- Generate a keystore:
-  - `keytool -genkeypair -v -keystore release-keystore.jks -alias audiomoth-release -keyalg RSA -keysize 2048 -validity 10000`
-- Configure signing in `build.gradle` (use environment variables / local properties for secrets)
-- Build release bundle:
-  - `./gradlew bundleRelease`
-- Upload the generated AAB to Play Console (or use Gradle Play Publisher with a Play service account JSON stored as GitHub secret to automate).
-
+  
 ## Contributing
 - Please open issues for bugs or feature requests.
 - For code changes:
