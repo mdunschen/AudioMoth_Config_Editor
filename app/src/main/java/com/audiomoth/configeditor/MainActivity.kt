@@ -3,6 +3,7 @@ package com.audiomoth.configeditor
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Context.USB_SERVICE
 import android.content.Intent
 import android.content.IntentFilter
 import android.hardware.usb.UsbConstants
@@ -158,11 +159,13 @@ class MainActivity : ComponentActivity() {
         connection: UsbDeviceConnection,
         interruptInEndpoint: UsbEndpoint?,
         interruptOutEndpoint: UsbEndpoint?,
-        command: Byte,
-        payload: ByteArray = ByteArray(0),
-        timeoutMs: Int = 600,
-        maxReads: Int = 4
+        payload: ByteArray = ByteArray(0)
     ): ByteArray? {
+        // The AudioMoth command used for app-packet exchanges and the
+        // associated timing/read parameters are fixed for this transport.
+        val COMMAND: Byte = 0x06.toByte()
+        val TIMEOUT_MS = 800
+        val MAX_READS = 6
         if (interruptOutEndpoint == null || interruptInEndpoint == null) return null
 
         // AudioMoth firmware can expect either:
@@ -170,8 +173,8 @@ class MainActivity : ComponentActivity() {
         // 2) no-report-id layout: [0]=cmd, payload starts at [1]
         data class Layout(val first: Byte, val second: Byte?, val payloadOffset: Int)
         val layouts = listOf(
-            Layout(first = 0x00, second = command, payloadOffset = 2),
-            Layout(first = command, second = null, payloadOffset = 1)
+            Layout(first = 0x00, second = COMMAND, payloadOffset = 2),
+            Layout(first = COMMAND, second = null, payloadOffset = 1)
         )
 
         for (layout in layouts) {
@@ -187,23 +190,38 @@ class MainActivity : ComponentActivity() {
                 System.arraycopy(payload, 0, report, layout.payloadOffset, copyLength)
             }
 
-            val written = sendHidReport(connection, interruptOutEndpoint, report, timeoutMs)
+            val written = sendHidReport(connection, interruptOutEndpoint, report, TIMEOUT_MS)
             if (written < 0) continue
 
             // Give device a short processing window before polling for interrupt IN response.
             Thread.sleep(25)
 
-            repeat(maxReads) {
-                val rx = pollHidInput(connection, interruptInEndpoint, timeoutMs)
+            repeat(MAX_READS) {
+                val rx = pollHidInput(connection, interruptInEndpoint, TIMEOUT_MS)
                 if (rx != null && rx.isNotEmpty()) {
                     if (rx.all { it == 0.toByte() }) return@repeat
-                    if (rx[0] == command) return rx
-                    if (rx.size > 1 && rx[0] == 0.toByte() && rx[1] == command) return rx
+                    if (rx[0] == COMMAND) return rx
+                    if (rx.size > 1 && rx[0] == 0.toByte() && rx[1] == COMMAND) return rx
                 }
             }
         }
 
         return null
+    }
+
+    // Convenience wrapper for the common AudioMoth "app packet" command parameters
+    private fun usbAppPacketRoundTrip(
+        connection: UsbDeviceConnection,
+        interruptInEndpoint: UsbEndpoint?,
+        interruptOutEndpoint: UsbEndpoint?,
+        payload: ByteArray = ByteArray(0)
+    ): ByteArray? {
+        return usbCommandRoundTrip(
+            connection = connection,
+            interruptInEndpoint = interruptInEndpoint,
+            interruptOutEndpoint = interruptOutEndpoint,
+            payload = payload
+        )
     }
 
 
@@ -214,14 +232,11 @@ class MainActivity : ComponentActivity() {
         packet: ByteArray,
         debug: StringBuilder
     ): Pair<Boolean, Boolean> {
-        val response = usbCommandRoundTrip(
+        val response = usbAppPacketRoundTrip(
             connection = connection,
             interruptInEndpoint = interruptInEndpoint,
             interruptOutEndpoint = interruptOutEndpoint,
-            command = 0x06,
-            payload = packet.copyOf(62),
-            timeoutMs = 800,
-            maxReads = 6
+            payload = packet.copyOf(62)
         )
 
         if (response == null || response.size < 2) {
@@ -404,7 +419,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun readDeviceInfo(device: UsbDevice): AudioMothDeviceInfo {
-        val usbManager = getSystemService(Context.USB_SERVICE) as UsbManager
+        val usbManager = getSystemService(USB_SERVICE) as UsbManager
         val vidStr = "0x%04X".format(device.vendorId)
         val pidStr = "0x%04X".format(device.productId)
         Log.d("USB", "Opening device: VID=$vidStr PID=$pidStr")
@@ -658,7 +673,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestUsbPermission(device: UsbDevice) {
-        val usbManager = getSystemService(Context.USB_SERVICE) as UsbManager
+        val usbManager = getSystemService(USB_SERVICE) as UsbManager
         val permissionIntent = PendingIntent.getBroadcast(
             this, 
             0, 
@@ -697,7 +712,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun syncTime(device: UsbDevice) {
-        val usbManager = getSystemService(Context.USB_SERVICE) as UsbManager
+        val usbManager = getSystemService(USB_SERVICE) as UsbManager
         val connection = usbManager.openDevice(device) ?: return
         
         try {
@@ -754,7 +769,7 @@ class MainActivity : ComponentActivity() {
         config: AudioMothConfig,
         priorDebugLog: String = ""
     ): ApplyUsbResult {
-        val usbManager = getSystemService(Context.USB_SERVICE) as UsbManager
+        val usbManager = getSystemService(USB_SERVICE) as UsbManager
         val connection = usbManager.openDevice(device) ?: return ApplyUsbResult(false, priorDebugLog)
         val debug = StringBuilder()
         debug.append("Apply Build:$APP_BUILD_TAG\n")
@@ -835,7 +850,7 @@ fun MainScreen(
     val context = LocalContext.current
     val connectedDevice = deviceInfo?.rawDevice
     // Controls the diagnostics dialog opened from the top app bar
-    var showTopDiagnosticsDialog by remember { mutableStateOf(false) }
+    val showTopDiagnosticsDialog = remember { mutableStateOf(false) }
 
     LaunchedEffect(deviceInfo) {
         if (deviceInfo == null) {
@@ -894,7 +909,7 @@ fun MainScreen(
                 },
                 actions = {
                     if (deviceInfo != null) {
-                        IconButton(onClick = { showTopDiagnosticsDialog = true }) {
+                        IconButton(onClick = { showTopDiagnosticsDialog.value = true }) {
                             Icon(Icons.Default.Info, contentDescription = "Device Diagnostics", tint = MaterialTheme.colorScheme.onPrimary)
                         }
 
@@ -914,11 +929,11 @@ fun MainScreen(
     ) { innerPadding ->
         // Diagnostics dialog invoked from the top app bar
         Box(modifier = Modifier.padding(innerPadding)) {
-            if (deviceInfo != null && showTopDiagnosticsDialog) {
+            if (deviceInfo != null && showTopDiagnosticsDialog.value) {
                 DeviceDiagnosticsDialog(
                     info = deviceInfo,
                     onSyncTime = { connectedDevice?.let(onSyncTime) },
-                    onDismiss = { showTopDiagnosticsDialog = false }
+                    onDismiss = { showTopDiagnosticsDialog.value = false }
                 )
             }
             when (currentScreen) {
