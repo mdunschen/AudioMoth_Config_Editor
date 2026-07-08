@@ -19,7 +19,7 @@ android {
         minSdk 24
         targetSdk 35
         // Bumped for a new build so testers can confirm they have the latest APK
-        versionCode 3
+        versionCode 4
         versionName "1.0.1"
     }
 
