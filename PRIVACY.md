@@ -36,5 +36,5 @@ We may update this Privacy Policy from time to time. Any changes will be reflect
 ## 6. Contact Us
 If you have any questions or concerns about this Privacy Policy or the App, please contact us at:
 
-📧 **Email:** [Your Email Address]
-🌐 **GitHub Repository:** [Link to Your GitHub Repo]
+📧 **Email:** mdunschen:gmail.com
+🌐 **GitHub Repository:** (https://github.com/mdunschen/AudioMoth_Config_Editor)
