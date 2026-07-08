@@ -1467,7 +1467,7 @@ fun RecordingTab(
     onConfigChange: (AudioMothConfig) -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        val sampleRates = listOf(384000, 250000, 192000, 96000, 48000)
+        val sampleRates = listOf(384000, 250000, 192000, 96000, 48000, 32000, 16000, 8000)
         var expanded by remember { mutableStateOf(false) }
 
         ExposedDropdownMenuBox(
@@ -1570,6 +1570,12 @@ fun ScheduleTab(
     config: AudioMothConfig,
     onConfigChange: (AudioMothConfig) -> Unit
 ) {
+    var showStatsDialog by remember { mutableStateOf(false) }
+
+    if (showStatsDialog) {
+        BatteryStatsDialog(config = config, onDismiss = { showStatsDialog = false })
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         ScheduleTimeline(timePeriods = config.timePeriods)
 
@@ -1587,6 +1593,10 @@ fun ScheduleTab(
                 onConfigChange(config.copy(timePeriods = (config.timePeriods + newPeriod).sortedBy { it.startMins }))
             }) {
                 Icon(Icons.Default.Add, contentDescription = "Add Period", modifier = Modifier.size(24.dp))
+            }
+
+            IconButton(onClick = { showStatsDialog = true }, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Default.Info, contentDescription = "View Stats", modifier = Modifier.size(20.dp))
             }
 
             TextButton(onClick = {
@@ -2278,3 +2288,53 @@ fun ConfigPreviewDialog(config: AudioMothConfig, onDismiss: () -> Unit) {
         }
     )
 }
+
+@Composable
+fun BatteryStatsDialog(config: AudioMothConfig, onDismiss: () -> Unit) {
+    val stats = config.calculateRecordingStats()
+    
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Daily Recording Statistics") },
+        text = {
+            Box(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    if (stats != null) {
+                        StatsRow(label = "Files per day", value = "${stats.filesPerDay} files")
+                        StatsRow(label = "File size", value = "${stats.fileSizeKB.toInt()} kB each")
+                        StatsRow(label = "Daily storage", value = "${String.format("%.0f", stats.dailyStorageMB)} MB")
+                        StatsRow(label = "Energy consumption", value = "${stats.dailyMah} mAh")
+                    } else {
+                        Text("No active recording windows", style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Close") }
+        }
+    )
+}
+
+@Composable
+fun StatsRow(label: String, value: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 12.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+    }
+}
+

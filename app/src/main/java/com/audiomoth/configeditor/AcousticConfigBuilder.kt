@@ -4,6 +4,22 @@ object AcousticConfigBuilder {
 
     private const val USB_APP_PACKET_SIZE = 62
 
+    // Energy consumption lookup table (mAh per hour of recording for each sample rate)
+    private val energyLookup = mapOf(
+        8000 to 12.0,
+        16000 to 12.0,
+        32000 to 14.0,
+        48000 to 15.0,
+        96000 to 18.0,
+        192000 to 26.0,
+        250000 to 28.0,
+        384000 to 40.0
+    )
+
+    fun energyPerHourForSampleRate(sampleRate: Int): Double? {
+        return energyLookup[sampleRate]
+    }
+
     private data class SampleRateConfig(
         val trueSampleRate: Int,
         val clockDivider: Int,
@@ -172,4 +188,3 @@ object AcousticConfigBuilder {
         buffer[offset + 3] = ((value shr 24) and 0xFF).toByte()
     }
 }
-

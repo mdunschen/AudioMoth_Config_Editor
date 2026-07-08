@@ -92,6 +92,13 @@ data class TimePeriod(
     val endMins: Int
 )
 
+data class RecordingStats(
+    val filesPerDay: Int,
+    val fileSizeKB: Double,
+    val dailyStorageMB: Double,
+    val dailyMah: Int
+)
+
 fun AudioMothConfig.scheduleValidationMessage(): String? {
     return if (timePeriods.isEmpty()) {
         "This config is not valid: add at least one recording schedule before saving or applying."
@@ -100,3 +107,40 @@ fun AudioMothConfig.scheduleValidationMessage(): String? {
     }
 }
 
+fun AudioMothConfig.calculateRecordingStats(): RecordingStats? {
+    if (timePeriods.isEmpty()) return null
+    
+    // Calculate total active minutes in 24h
+    val totalActiveMinutes = timePeriods.sumOf { period ->
+        val start = period.startMins.coerceIn(0, 1440)
+        val end = period.endMins.coerceIn(0, 1440)
+        (end - start).coerceAtLeast(0)
+    }
+    
+    if (totalActiveMinutes <= 0) return null
+    
+    val cycleDuration = recordDuration + sleepDuration
+    if (cycleDuration <= 0) return null
+    
+    // Calculate number of files per day
+    val filesPerDay = (totalActiveMinutes * 60) / cycleDuration
+    
+    // Calculate file size in bytes (16-bit mono WAV: 2 bytes per sample + 44-byte WAV header)
+    val fileSizeBytes = (recordDuration * sampleRate * 2) + 44
+    val fileSizeKB = fileSizeBytes / 1024.0
+    
+    // Calculate daily storage in MB
+    val dailyStorageMB = (filesPerDay * fileSizeKB) / 1024.0
+    
+    // Calculate daily energy consumption
+    val energyPerHour = AcousticConfigBuilder.energyPerHourForSampleRate(sampleRate) ?: 0.0
+    val recordingHours = totalActiveMinutes / 60.0
+    val dailyMah = (recordingHours * energyPerHour).toInt()
+    
+    return RecordingStats(
+        filesPerDay = filesPerDay,
+        fileSizeKB = fileSizeKB,
+        dailyStorageMB = dailyStorageMB,
+        dailyMah = dailyMah
+    )
+}
