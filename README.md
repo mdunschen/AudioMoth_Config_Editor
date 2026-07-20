@@ -71,4 +71,8 @@ A compact Android app to create and apply AudioMoth recording configurations via
 - Keep debug-only tools gated behind explicit UI actions (we follow that approach here — diagnostics are on-demand).
 
 ## License
-- Check the repository `LICENSE` or `LICENSE.md` file (if present) for project license information.
+- Check `LICENSE.md` for project license information.
+
+
+## Internal testing track
+If you're interested trying the app, please consider signing up to the internal testing by filling on this form: https://forms.gle/KDUf5YmoX27k7PDp9
